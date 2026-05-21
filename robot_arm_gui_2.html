@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robotické rameno — ovládání</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 500;
+    color: #00ff88;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 20px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 860px;
+  }
+  .card {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card-title {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 14px;
+  }
+  .axis-label {
+    font-size: 13px;
+    color: #aaa;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .axis-label span { color: #00ff88; font-size: 14px; font-weight: 500; }
+  input[type=range] {
+    width: 100%;
+    accent-color: #00ff88;
+    margin-bottom: 12px;
+    cursor: pointer;
+  }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+  }
+  button:hover { background: #2a2a2a; border-color: #00ff88; color: #00ff88; }
+  button:active { background: #003322; }
+  button.danger { border-color: #ff4444; color: #ff4444; }
+  button.danger:hover { background: #2a0000; }
+  button.primary { border-color: #00ff88; color: #00ff88; background: #001a0e; }
+  .log-box {
+    grid-column: 1 / -1;
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    height: 150px;
+    overflow-y: auto;
+    color: #888;
+  }
+  .log-box .ok { color: #00ff88; }
+  .log-box .err { color: #ff4444; }
+  .log-box .sent { color: #4488ff; }
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    grid-column: 1 / -1;
+  }
+  .status-box {
+    background: #0a0a0a;
+    border: 1px solid #222;
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+  }
+  .status-box .lbl { font-size: 10px; color: #555; text-transform: uppercase; }
+  .status-box .val { font-size: 20px; color: #00ff88; font-weight: 500; }
+  .connect-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 20px;
+    max-width: 860px;
+  }
+  #conn-status {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+  }
+  #conn-status.connected { border-color: #00ff88; color: #00ff88; }
+  #conn-status.disconnected { border-color: #555; color: #555; }
+  .speed-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #888;
+  }
+  .speed-row input[type=range] { flex: 1; margin: 0; }
+  .step-big { font-size: 18px; padding: 8px 16px; }
+  hr { border: none; border-top: 1px solid #222; margin: 12px 0; }
+  .servo-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .servo-row label { font-size: 12px; color: #888; width: 60px; flex-shrink: 0; }
+  .servo-row input[type=range] { flex: 1; margin: 0; }
+  .servo-row .val { font-size: 14px; color: #00ff88; min-width: 36px; text-align: right; }
+</style>
+</head>
+<body>
+
+<h1>&#9654; Robotické rameno</h1>
+<p class="subtitle">Arduino Mega 2560 + RAMPS 1.4 — A4988 1/16 mikrostepping</p>
+
+<div class="connect-bar">
+  <button class="primary" onclick="connectSerial()">&#128275; Připojit USB</button>
+  <div id="conn-status" class="disconnected">Nepřipojeno</div>
+  <div class="speed-row" style="flex:1">
+    <span>Rychlost</span>
+    <input type="range" min="100" max="2000" value="500" id="spd-slider" oninput="updateSpeed(this.value)">
+    <span id="spd-val">500 µs</span>
+  </div>
+</div>
+
+<div class="status-grid">
+  <div class="status-box"><div class="lbl">X — základna</div><div class="val" id="st-x">0°</div></div>
+  <div class="status-box"><div class="lbl">Y — ohyb 1</div><div class="val" id="st-y">0°</div></div>
+  <div class="status-box"><div class="lbl">Z — ohyb 2</div><div class="val" id="st-z">0°</div></div>
+  <div class="status-box"><div class="lbl">Servo 1</div><div class="val" id="st-s1">90°</div></div>
+  <div class="status-box"><div class="lbl">Servo 2</div><div class="val" id="st-s2">90°</div></div>
+</div>
+
+<br>
+
+<div class="grid">
+
+  <!-- X - základna -->
+  <div class="card">
+    <div class="card-title">X — základna (otočení ±135°)</div>
+    <div class="axis-label">Poloha: <span id="x-disp">0°</span></div>
+    <input type="range" min="-135" max="135" value="0" id="x-slider" oninput="document.getElementById('x-disp').textContent=this.value+'°'">
+    <div class="btn-row">
+      <button onclick="sendCmd('DX:-10')">◄ -10°</button>
+      <button onclick="sendCmd('DX:-1')">◄ -1°</button>
+      <button onclick="sendCmd('X:0')">⌂ 0</button>
+      <button onclick="sendCmd('DX:1')">+1° ►</button>
+      <button onclick="sendCmd('DX:10')">+10° ►</button>
+    </div>
+    <hr>
+    <div class="btn-row">
+      <button onclick="sendCmd('X:'+document.getElementById('x-slider').value)">&#9654; Jet na polohu</button>
+    </div>
+  </div>
+
+  <!-- Y - první ohyb -->
+  <div class="card">
+    <div class="card-title">Y — první ohyb (±90°)</div>
+    <div class="axis-label">Poloha: <span id="y-disp">0°</span></div>
+    <input type="range" min="-90" max="90" value="0" id="y-slider" oninput="document.getElementById('y-disp').textContent=this.value+'°'">
+    <div class="btn-row">
+      <button onclick="sendCmd('DY:-10')">▼ -10°</button>
+      <button onclick="sendCmd('DY:-1')">▼ -1°</button>
+      <button onclick="sendCmd('Y:0')">⌂ 0</button>
+      <button onclick="sendCmd('DY:1')">+1° ▲</button>
+      <button onclick="sendCmd('DY:10')">+10° ▲</button>
+    </div>
+    <hr>
+    <div class="btn-row">
+      <button onclick="sendCmd('Y:'+document.getElementById('y-slider').value)">&#9654; Jet na polohu</button>
+    </div>
+  </div>
+
+  <!-- Z - druhý ohyb -->
+  <div class="card">
+    <div class="card-title">Z — druhý ohyb (±120°)</div>
+    <div class="axis-label">Poloha: <span id="z-disp">0°</span></div>
+    <input type="range" min="-120" max="120" value="0" id="z-slider" oninput="document.getElementById('z-disp').textContent=this.value+'°'">
+    <div class="btn-row">
+      <button onclick="sendCmd('DZ:-10')">▼ -10°</button>
+      <button onclick="sendCmd('DZ:-1')">▼ -1°</button>
+      <button onclick="sendCmd('Z:0')">⌂ 0</button>
+      <button onclick="sendCmd('DZ:1')">+1° ▲</button>
+      <button onclick="sendCmd('DZ:10')">+10° ▲</button>
+    </div>
+    <hr>
+    <div class="btn-row">
+      <button onclick="sendCmd('Z:'+document.getElementById('z-slider').value)">&#9654; Jet na polohu</button>
+    </div>
+  </div>
+
+  <!-- Serva - chapka -->
+  <div class="card">
+    <div class="card-title">Serva — chapka</div>
+    <div class="servo-row">
+      <label>Servo 1</label>
+      <input type="range" min="0" max="180" value="90" id="s1-slider" oninput="document.getElementById('s1-val').textContent=this.value+'°'">
+      <div class="val" id="s1-val">90°</div>
+    </div>
+    <div class="btn-row" style="margin-bottom:12px">
+      <button onclick="sendCmd('DS1:-10')">◄ -10°</button>
+      <button onclick="sendCmd('DS1:-1')">◄ -1°</button>
+      <button onclick="sendCmd('S1:90')">⌂</button>
+      <button onclick="sendCmd('DS1:1')">+1° ►</button>
+      <button onclick="sendCmd('DS1:10')">+10° ►</button>
+      <button onclick="sendCmd('S1:'+document.getElementById('s1-slider').value)">&#9654; Jet</button>
+    </div>
+    <div class="servo-row">
+      <label>Servo 2</label>
+      <input type="range" min="0" max="180" value="90" id="s2-slider" oninput="document.getElementById('s2-val').textContent=this.value+'°'">
+      <div class="val" id="s2-val">90°</div>
+    </div>
+    <div class="btn-row">
+      <button onclick="sendCmd('DS2:-10')">◄ -10°</button>
+      <button onclick="sendCmd('DS2:-1')">◄ -1°</button>
+      <button onclick="sendCmd('S2:90')">⌂</button>
+      <button onclick="sendCmd('DS2:1')">+1° ►</button>
+      <button onclick="sendCmd('DS2:10')">+10° ►</button>
+      <button onclick="sendCmd('S2:'+document.getElementById('s2-slider').value)">&#9654; Jet</button>
+    </div>
+  </div>
+
+  <!-- Makra -->
+  <div class="card" style="grid-column: 1 / -1">
+    <div class="card-title">Rychlé příkazy</div>
+    <div class="btn-row">
+      <button class="primary" onclick="sendCmd('HOME')">&#8962; HOME — vše do nuly</button>
+      <button onclick="sendCmd('STATUS')">&#10003; Načíst stav</button>
+      <button onclick="sendCmd('S1:20')">&#128078; Zavřít chapku</button>
+      <button onclick="sendCmd('S1:160')">&#128077; Otevřít chapku</button>
+    </div>
+  </div>
+
+  <!-- Ukázkový běh -->
+  <div class="card" style="grid-column: 1 / -1">
+    <div class="card-title">Ukázkový běh</div>
+    <div class="btn-row" style="margin-bottom:12px">
+      <button class="primary" id="demo-btn" onclick="startDemo()">&#9654; Spustit ukázku</button>
+      <button class="danger" onclick="stopDemo()">&#9632; Zastavit</button>
+      <span id="demo-status" style="font-size:12px;color:#555;margin-left:8px"></span>
+    </div>
+    <div style="font-size:11px;color:#444;line-height:1.8">
+      HOME → otočení základny → zdvih ramene → natažení → chapnout → zpět → HOME
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-box" id="log">
+    <div class="ok">[INFO] GUI načteno. Klikni na "Připojit USB".</div>
+    <div style="color:#444">[INFO] Vyžaduje Chrome/Edge s Web Serial API.</div>
+  </div>
+
+</div>
+
+<script>
+let port = null;
+let writer = null;
+let reader = null;
+let readBuffer = '';
+
+async function connectSerial() {
+  if (port) {
+    await disconnectSerial();
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    document.getElementById('conn-status').textContent = 'Připojeno';
+    document.getElementById('conn-status').className = 'connected';
+    log('Připojeno k Arduino.', 'ok');
+    readLoop();
+  } catch(e) {
+    log('Chyba připojení: ' + e.message, 'err');
+    port = null;
+  }
+}
+
+async function disconnectSerial() {
+  try {
+    if (reader) { await reader.cancel(); reader = null; }
+    if (writer) { writer.releaseLock(); writer = null; }
+    if (port) { await port.close(); port = null; }
+  } catch(e) {}
+  document.getElementById('conn-status').textContent = 'Nepřipojeno';
+  document.getElementById('conn-status').className = 'disconnected';
+  log('Odpojeno.', 'err');
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  try {
+    while (port && port.readable) {
+      reader = port.readable.getReader();
+      const { value, done } = await reader.read();
+      if (done) break;
+      readBuffer += decoder.decode(value);
+      let lines = readBuffer.split('\n');
+      readBuffer = lines.pop();
+      lines.forEach(l => processLine(l.trim()));
+      reader.releaseLock();
+    }
+  } catch(e) {
+    if (port) log('Chyba čtení: ' + e.message, 'err');
+  }
+}
+
+function processLine(line) {
+  if (!line) return;
+  log(line, line.startsWith('OK') ? 'ok' : (line.startsWith('ERR') ? 'err' : ''));
+  if (line.startsWith('STATUS:')) {
+    const parts = line.substring(7).split(',');
+    parts.forEach(p => {
+      const [k, v] = p.split('=');
+      const n = parseFloat(v);
+      if (k === 'X') { document.getElementById('st-x').textContent = n.toFixed(1)+'°'; document.getElementById('x-slider').value = n; document.getElementById('x-disp').textContent = n.toFixed(1)+'°'; }
+      if (k === 'Y') { document.getElementById('st-y').textContent = n.toFixed(1)+'°'; document.getElementById('y-slider').value = n; document.getElementById('y-disp').textContent = n.toFixed(1)+'°'; }
+      if (k === 'Z') { document.getElementById('st-z').textContent = n.toFixed(1)+'°'; document.getElementById('z-slider').value = n; document.getElementById('z-disp').textContent = n.toFixed(1)+'°'; }
+      if (k === 'S1') { document.getElementById('st-s1').textContent = Math.round(n)+'°'; document.getElementById('s1-slider').value = n; document.getElementById('s1-val').textContent = Math.round(n)+'°'; }
+      if (k === 'S2') { document.getElementById('st-s2').textContent = Math.round(n)+'°'; document.getElementById('s2-slider').value = n; document.getElementById('s2-val').textContent = Math.round(n)+'°'; }
+    });
+  }
+}
+
+async function sendCmd(cmd) {
+  if (!writer) { log('Není připojeno!', 'err'); return; }
+  const encoder = new TextEncoder();
+  await writer.write(encoder.encode(cmd + '\n'));
+  log('>> ' + cmd, 'sent');
+}
+
+function updateSpeed(val) {
+  document.getElementById('spd-val').textContent = val + ' µs';
+  if (writer) sendCmd('SPD:' + val);
+}
+
+function log(msg, cls) {
+  const box = document.getElementById('log');
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = '[' + new Date().toLocaleTimeString('cs') + '] ' + msg;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ---- Ukázkový běh ----
+let demoRunning = false;
+let demoTimeout = null;
+
+// Sekvence kroků: [příkaz, čekání ms před dalším krokem]
+const demoSequence = [
+  ['HOME',     2000],
+  ['S1:160',    800],  // otevřít chapku
+  ['X:90',     2500],  // otočit základnu doprava
+  ['Y:45',     2000],  // zdvihnout rameno
+  ['Z:60',     2000],  // natáhnout druhý kloub
+  ['S1:30',     800],  // zavřít chapku — chápnout
+  ['Z:0',      2000],  // složit druhý kloub
+  ['Y:0',      2000],  // spustit rameno
+  ['X:-90',    2500],  // otočit doleva
+  ['Y:30',     1500],  // trochu nahoru
+  ['S1:160',    800],  // pustit
+  ['Y:0',      1500],
+  ['X:0',      2000],
+  ['HOME',     1000],
+];
+
+async function startDemo() {
+  if (!writer) { log('Není připojeno!', 'err'); return; }
+  if (demoRunning) return;
+  demoRunning = true;
+  document.getElementById('demo-btn').style.opacity = '0.4';
+  document.getElementById('demo-status').textContent = 'Běží...';
+  log('Ukázkový běh spuštěn.', 'ok');
+  runDemoStep(0);
+}
+
+function runDemoStep(i) {
+  if (!demoRunning || i >= demoSequence.length) {
+    demoRunning = false;
+    document.getElementById('demo-btn').style.opacity = '1';
+    document.getElementById('demo-status').textContent = i >= demoSequence.length ? 'Hotovo ✓' : 'Zastaveno';
+    log('Ukázkový běh dokončen.', 'ok');
+    return;
+  }
+  const [cmd, wait] = demoSequence[i];
+  sendCmd(cmd);
+  document.getElementById('demo-status').textContent = 'Krok ' + (i+1) + '/' + demoSequence.length + ': ' + cmd;
+  demoTimeout = setTimeout(() => runDemoStep(i + 1), wait);
+}
+
+function stopDemo() {
+  demoRunning = false;
+  if (demoTimeout) clearTimeout(demoTimeout);
+  document.getElementById('demo-btn').style.opacity = '1';
+  document.getElementById('demo-status').textContent = 'Zastaveno';
+  log('Ukázkový běh zastaven.', 'err');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!writer) return;
+  const step = e.shiftKey ? 10 : 1;
+  switch(e.key) {
+    case 'ArrowLeft':  e.preventDefault(); sendCmd('DX:-' + step); break;
+    case 'ArrowRight': e.preventDefault(); sendCmd('DX:' + step);  break;
+    case 'ArrowUp':    e.preventDefault(); sendCmd('DY:' + step);  break;
+    case 'ArrowDown':  e.preventDefault(); sendCmd('DY:-' + step); break;
+    case 'PageUp':     e.preventDefault(); sendCmd('DZ:' + step);  break;
+    case 'PageDown':   e.preventDefault(); sendCmd('DZ:-' + step); break;
+    case 'h': case 'H': sendCmd('HOME'); break;
+    case 'o': sendCmd('DS1:10'); break;  // otevřít chapku
+    case 'c': sendCmd('DS1:-10'); break; // zavřít chapku
+  }
+});
+</script>
+</body>
+</html>
